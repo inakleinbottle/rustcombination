@@ -1,4 +1,5 @@
 use lapack::dgesvd;
+use rayon::iter::split;
 use std::error::Error;
 
 pub trait LinearAlgebraReductionTool {
@@ -52,8 +53,15 @@ impl SVDReductionTool {
             )
         }
 
-        let split_point = s.partition_point(|x| *x <= Self::THRESHOLD);
-        s.shrink_to(split_point);
+        let split_point = s.partition_point(|x| *x > Self::THRESHOLD);
+
+        let mut result = vec![0.0f64; (ldk as usize) * (input_cols - split_point)];
+
+        for i in split_point..input_cols {
+            for j in 0..input_cols {
+                result[j + (i - split_point) * (ldk as usize)] = vt[i + j * (ldvt as usize)];
+            }
+        }
 
         Ok(s)
     }
