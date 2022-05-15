@@ -2,10 +2,12 @@
 mod Cinterface;
 mod reduction_tool;
 mod tree_buffer_helper;
+mod reweight;
 
 use std::error::Error;
 
 pub use Cinterface::*;
+
 
 #[repr(C)]
 pub struct ConditionerHelper {
