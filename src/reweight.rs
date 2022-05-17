@@ -1,5 +1,6 @@
-//!
-//! kernel is a m by r_p matrix
+use std::error::Error;
+
+/// kernel is a m by r_p matrix
 pub fn reweight(
     mass: &mut [f64],
     kernel: &mut [f64],
@@ -7,12 +8,13 @@ pub fn reweight(
     c_k: usize,
     ldk: usize,
     _tol: f64,
-) {
+) -> Result<(Vec<usize>, Vec<usize>), Box<dyn Error>> {
     let r_k = r_p;
 
     let mut r_idx: Vec<usize> = (0..r_p).collect();
     let mut c_idx: Vec<usize> = (0..c_k).collect();
 
+    #[allow(non_snake_case)]
     let mut zeros_in_P: Vec<usize> = mass
         .iter()
         .enumerate()
@@ -28,7 +30,7 @@ pub fn reweight(
         let ocl = r_k - offset;
         let ocn = c_k - offset;
 
-        let update_k_increment_0 = |r: usize, ker: &mut [f64], mass: &mut [f64]| {
+        let mut update_k_increment_0 = |r: usize, ker: &mut [f64], mass: &mut [f64]| {
             for c in 1..ocn {
                 let factor = -ker[offset + c * ldk] / ker[offset + r];
                 const CHUNK_SIZE: usize = 512;
@@ -43,8 +45,9 @@ pub fn reweight(
                             break;
                         };
                         for jj in 0..this_chunk_size {
-                            ker[offset + c * ldk + j + jj] += factor * ker[offset + j];
+                            ker[offset + c * ldk + j + jj] += factor * ker[offset + j + jj];
                         }
+                        j += this_chunk_size;
                     }
                 }
 
@@ -63,7 +66,7 @@ pub fn reweight(
         };
 
         if let Some(idx) = zeros_in_P.pop() {
-            let r = idx;
+            let r = idx - offset;
             let mut max_col = 0;
             let mut curr_max = kernel[r + max_col].abs();
             for i in 0..ocn {
@@ -80,7 +83,7 @@ pub fn reweight(
                 }
                 c_idx.swap(max_col, 0usize);
             }
-            update_k_increment_0(r, kernel);
+            update_k_increment_0(r, kernel, mass);
         } else {
             let mut found = offset;
             let mut test_val = f64::abs(mass[found] / kernel[found]);
@@ -104,9 +107,9 @@ pub fn reweight(
                 debug_assert!(mass[i] >= 0.0f64);
             }
 
-            update_k_increment_0(r, kernel);
+            update_k_increment_0(r, kernel, mass);
 
-            zeros_in_P = mass[offset + 1..]
+            zeros_in_P = mass[offset+2..]
                 .iter()
                 .enumerate()
                 .filter_map(|(i, p)| if p.abs() == 0.0f64 { Some(i) } else { None })
@@ -114,4 +117,6 @@ pub fn reweight(
                 .collect()
         }
     }
+
+    Ok((r_idx, c_idx))
 }
