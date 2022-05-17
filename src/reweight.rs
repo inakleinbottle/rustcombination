@@ -1,5 +1,6 @@
-//!
-//! kernel is a m by r_p matrix
+use std::error::Error;
+
+/// kernel is a m by r_p matrix
 pub fn reweight(
     mass: &mut [f64],
     kernel: &mut [f64],
@@ -7,7 +8,7 @@ pub fn reweight(
     c_k: usize,
     ldk: usize,
     _tol: f64,
-) {
+) -> Result<(Vec<usize>, Vec<usize>), Box<dyn Error>> {
     let r_k = r_p;
 
     let mut r_idx: Vec<usize> = (0..r_p).collect();
@@ -28,7 +29,7 @@ pub fn reweight(
         let ocl = r_k - offset;
         let ocn = c_k - offset;
 
-        let update_k_increment_0 = |r: usize, ker: &mut [f64], mass: &mut [f64]| {
+        let mut update_k_increment_0 = |r: usize, ker: &mut [f64], mass: &mut [f64]| {
             for c in 1..ocn {
                 let factor = -ker[offset + c * ldk] / ker[offset + r];
                 const CHUNK_SIZE: usize = 512;
@@ -80,7 +81,7 @@ pub fn reweight(
                 }
                 c_idx.swap(max_col, 0usize);
             }
-            update_k_increment_0(r, kernel);
+            update_k_increment_0(r, kernel, mass);
         } else {
             let mut found = offset;
             let mut test_val = f64::abs(mass[found] / kernel[found]);
@@ -104,7 +105,7 @@ pub fn reweight(
                 debug_assert!(mass[i] >= 0.0f64);
             }
 
-            update_k_increment_0(r, kernel);
+            update_k_increment_0(r, kernel, mass);
 
             zeros_in_P = mass[offset + 1..]
                 .iter()
@@ -114,4 +115,6 @@ pub fn reweight(
                 .collect()
         }
     }
+
+    Ok((r_idx, c_idx))
 }
