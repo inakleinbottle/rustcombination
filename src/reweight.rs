@@ -9,6 +9,12 @@ pub fn reweight(
     ldk: usize,
     _tol: f64,
 ) -> Result<(Vec<usize>, Vec<usize>), Box<dyn Error>> {
+    debug_assert_eq!(kernel.len(), c_k * ldk);
+    debug_assert!(!kernel.iter().any(|k| k.is_nan()));
+    debug_assert!(!mass.iter().any(|k| k.is_nan()));
+    debug_assert!(kernel.iter().all(|k| k.is_finite()));
+    debug_assert!(mass.iter().all(|k| k.is_finite()));
+
     let r_k = r_p;
 
     let mut r_idx: Vec<usize> = (0..r_p).collect();
@@ -24,17 +30,21 @@ pub fn reweight(
 
     for offset in 0..c_k {
         let k_begin = offset * (ldk + 1);
-        let k_end = k_begin + r_k - offset;
+        let k_end = k_begin + r_k;
         // let okernel = &mut kernel[k_begin..];
         // let omass = &mass[offset..];
         let ocl = r_k - offset;
         let ocn = c_k - offset;
+        debug_assert_eq!(kernel[offset * ldk..].len(), ocn * ldk);
 
         let mut update_k_increment_0 = |r: usize, ker: &mut [f64], mass: &mut [f64]| {
+            debug_assert!(r < r_p);
             for c in 1..ocn {
-                let factor = -ker[offset + c * ldk] / ker[offset + r];
+                let denom = ker[offset + r];
+
                 const CHUNK_SIZE: usize = 512;
-                if !factor.is_nan() {
+                if denom != 0.0f64 {
+                    let factor = -ker[offset + r + c * ldk] / denom;
                     let mut j = 0usize;
                     loop {
                         let this_chunk_size = if j + CHUNK_SIZE < ocl {
@@ -61,16 +71,20 @@ pub fn reweight(
                 mass[offset + r] = mass[offset];
                 mass[offset] = 0.0f64;
                 ker.swap(offset + r, offset);
-                r_idx.swap(offset + r, 0);
+                r_idx.swap(offset + r, offset);
             }
+            debug_assert!(!ker.iter().any(|k| k.is_nan()));
+            debug_assert!(!mass.iter().any(|k| k.is_nan()));
+            debug_assert!(ker.iter().all(|k| k.is_finite()));
+            debug_assert!(mass.iter().all(|k| k.is_finite()));
         };
 
         if let Some(idx) = zeros_in_P.pop() {
             let r = idx - offset;
             let mut max_col = 0;
-            let mut curr_max = kernel[r + max_col].abs();
+            let mut curr_max = kernel[offset + r + max_col].abs();
             for i in 0..ocn {
-                let test = r + i * ldk;
+                let test = offset + r + i * ldk;
                 let test_val = kernel[test].abs();
                 if test_val > curr_max {
                     max_col = i;
@@ -79,25 +93,26 @@ pub fn reweight(
             }
             if max_col != 0 {
                 for i in 0..ocl {
-                    kernel.swap(offset + i, offset + i + r + (max_col * ldk))
+                    kernel.swap(offset + i, offset + i + r + (max_col) * ldk)
                 }
                 c_idx.swap(max_col, 0usize);
             }
             update_k_increment_0(r, kernel, mass);
         } else {
             let mut found = offset;
-            let mut test_val = f64::abs(mass[found] / kernel[found]);
+            let mut test_val = mass[found] / kernel[found];
+
+            debug_assert!(!test_val.is_nan());
 
             for i in offset..r_p {
-                let fract = f64::abs(mass[i] / kernel[i]);
-                if fract < test_val {
+                let fract = mass[i] / kernel[i];
+                if f64::abs(fract) < f64::abs(test_val) {
                     found = i;
                     test_val = fract;
                 }
             }
             let r = found - offset;
             let factor = -test_val;
-
             for i in offset..r_p {
                 if i == found {
                     mass[i] = 0.0f64;
@@ -109,10 +124,16 @@ pub fn reweight(
 
             update_k_increment_0(r, kernel, mass);
 
-            zeros_in_P = mass[offset+2..]
+            zeros_in_P = mass[(offset + 1)..]
                 .iter()
                 .enumerate()
-                .filter_map(|(i, p)| if p.abs() == 0.0f64 { Some(i) } else { None })
+                .filter_map(|(i, p)| {
+                    if p.abs() == 0.0f64 {
+                        Some(i + offset + 2)
+                    } else {
+                        None
+                    }
+                })
                 .rev()
                 .collect()
         }

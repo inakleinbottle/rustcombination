@@ -1,9 +1,9 @@
+use crate::{Recombine, RecombineError};
 use lapack::{dgelsd, dgesvd};
 use rayon::iter::split;
+use std::cmp::Ordering;
 use std::error::Error;
 use std::mem;
-use crate::{Recombine, RecombineError};
-use std::cmp::Ordering;
 
 use crate::reweight::reweight;
 
@@ -12,9 +12,8 @@ pub trait LinearAlgebraReductionTool {
         &self,
         weights: &mut [f64],
         points: &mut [f64],
-        max_set: &mut Vec<usize>,
         no_points: usize,
-    ) -> Result<(), Box<dyn Error>>;
+    ) -> Result<Vec<usize>, Box<dyn Error>>;
 
     fn num_linalg_calls(&self) -> usize;
 }
@@ -87,14 +86,18 @@ impl SVDReductionTool {
         }
         match info.cmp(&0) {
             Ordering::Less => {
-                return Err(RecombineError::LinearAlgebraError(
-                    format!("Argument {} has incorrect value", -info)).into()
-                );
-            },
-            Ordering::Greater => {
-                return Err(RecombineError::LinearAlgebraError("svd failed to converge".into()).into());
+                return Err(RecombineError::LinearAlgebraError(format!(
+                    "Argument {} has incorrect value",
+                    -info
+                ))
+                .into());
             }
-            Ordering::Equal => ()
+            Ordering::Greater => {
+                return Err(
+                    RecombineError::LinearAlgebraError("svd failed to converge".into()).into(),
+                );
+            }
+            Ordering::Equal => (),
         }
 
         let split_point = s.partition_point(|x| *x > Self::THRESHOLD);
@@ -113,16 +116,16 @@ impl SVDReductionTool {
     fn sharpen_weights(
         &self,
         mut min_set: Vec<usize>,
-        max_set: &mut Vec<usize>,
+        mut max_set: Vec<usize>,
         points: &[f64],
         weights: &mut [f64],
         m_cog: Vec<f64>,
         no_coords: usize,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<Vec<usize>, Box<dyn Error>> {
         let mut temp_min_set = Vec::<usize>::new();
 
         while temp_min_set.len() < min_set.len() {
-            let mut avec = vec![0.0f64; min_set.len()*no_coords];
+            let mut avec = vec![0.0f64; min_set.len() * no_coords];
             let mut wvec = vec![0.0f64; min_set.len()];
             let mut bvec = m_cog.clone();
 
@@ -173,12 +176,10 @@ impl SVDReductionTool {
                 }
             }
 
-            dbg!(min_set.len(), temp_min_set.len());
             mem::swap(&mut min_set, &mut temp_min_set);
-            dbg!(min_set.len(), temp_min_set.len());
         }
 
-        Ok(())
+        Ok(max_set)
     }
 }
 
@@ -187,11 +188,10 @@ impl LinearAlgebraReductionTool for SVDReductionTool {
         &self,
         weights: &mut [f64],
         points: &mut [f64],
-        max_set: &mut Vec<usize>,
         no_coords: usize,
-    ) -> Result<(), Box<dyn Error>> {
-        let min_set: Vec<usize> = Vec::new();
-        max_set.clear();
+    ) -> Result<Vec<usize>, Box<dyn Error>> {
+        let mut min_set = Vec::<usize>::new();
+        let mut max_set = Vec::<usize>::new();
 
         let no_points = weights.len();
 
@@ -207,6 +207,9 @@ impl LinearAlgebraReductionTool for SVDReductionTool {
         let mut kernel =
             self.find_kernel(points, no_coords, no_coords as isize, no_points as isize)?;
 
+        debug_assert!(kernel.iter().all(|v| v.is_finite()));
+        debug_assert!(!kernel.iter().any(|v| v.is_nan()));
+
         let r_p = no_points;
         let c_k = kernel.len() / no_points;
 
@@ -219,12 +222,11 @@ impl LinearAlgebraReductionTool for SVDReductionTool {
             Self::PROB_ZERO_TOL,
         )?;
 
-        for &v in &permute_r {
+        for &v in permute_r.iter().take(c_k) {
             max_set.push(v);
             weights[v] = 0.0f64;
         }
 
-        let mut min_set: Vec<usize> = Vec::new();
         for i in c_k..r_p {
             let wi = permute_r[i];
             weights[wi] = new_weights[i];
@@ -234,7 +236,7 @@ impl LinearAlgebraReductionTool for SVDReductionTool {
                 min_set.push(wi);
             }
         }
-
+        dbg!(max_set.len());
         self.sharpen_weights(min_set, max_set, points, weights, m_cog, no_coords)
     }
 

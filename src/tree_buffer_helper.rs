@@ -29,6 +29,8 @@ impl TreeBufferHelper {
         let mut data = vec![f64::NAN; 2 * no_points * degree];
         let mut weights = vec![0.0f64; 2 * no_points];
 
+        dbg!(no_points, degree);
+
         let helper = ConditionerHelper {
             no_points_to_be_processed: no_points,
         };
@@ -82,7 +84,7 @@ impl TreeBufferHelper {
         let mut tree_position = BTreeMap::new();
         let mut current_roots = BTreeMap::new();
         for i in 0..no_trees {
-            let root = i + 2*buffer_end;
+            let root = i + 2 * buffer_end;
             current_roots.insert(i, root);
             tree_position.insert(root, i);
         }
@@ -203,7 +205,7 @@ impl TreeBufferHelper {
         let _ = self.tree_position.insert(key, value);
     }
 
-    pub fn repack_buffer(&mut self, points: &mut [f64], weights: &mut [f64]) {
+    pub fn repack_buffer(&mut self, points: &mut Vec<f64>, weights: &mut Vec<f64>) {
         let mut current_roots_new = BTreeMap::new();
         let mut tree_position_new = BTreeMap::new();
         let mut weights_new = vec![0.0f64; self.current_roots.len()];
@@ -217,10 +219,12 @@ impl TreeBufferHelper {
                 .copy_from_slice(&points[node * self.degree..(node + 1) * self.degree]);
         }
 
+        let length = self.current_roots.len();
+
         self.current_roots = current_roots_new;
         self.tree_position = tree_position_new;
-        weights.copy_from_slice(&weights_new);
-        points.copy_from_slice(&points_new);
+        *weights = weights_new;
+        *points = points_new;
     }
 
     pub fn points_mut(&mut self) -> &mut [f64] {
@@ -228,11 +232,10 @@ impl TreeBufferHelper {
     }
 
     pub fn update_points_buffer(&mut self, buffer: &mut [f64]) {
-        debug_assert!(buffer.len() >= self.no_trees*self.degree);
+        debug_assert!(buffer.len() >= self.no_trees * self.degree);
         for (root_i, buf_i) in self.tree_position.iter() {
-            buffer[buf_i*self.degree..(buf_i+1)*self.degree].copy_from_slice(
-                &self.data[root_i*self.degree..(root_i+1)*self.degree]
-            );
+            buffer[buf_i * self.degree..(buf_i + 1) * self.degree]
+                .copy_from_slice(&self.data[root_i * self.degree..(root_i + 1) * self.degree]);
         }
     }
 }

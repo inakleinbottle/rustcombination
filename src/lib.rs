@@ -34,29 +34,33 @@ pub fn recombine(interface: &mut dyn RecombineInterface) -> Result<(), Box<dyn E
         helper.update_points_buffer(&mut points);
         let mut num_lapack_calls = 0usize;
 
-        let mut max_set = Vec::<usize>::new();
         let mut done = false;
         while !done {
-            reduction_tool.move_mass(&mut weights, &mut points, &mut max_set, degree)?;
+            let mut max_set = reduction_tool.move_mass(&mut weights, &mut points, degree)?;
 
+            dbg!(max_set.len());
             done = max_set.is_empty();
 
             for to_go_position in max_set.drain(..) {
-                dbg!(to_go_position);
-                helper.tree_position.remove(
-                    &helper.current_roots.remove(&to_go_position).unwrap()
-                ).unwrap();
+                debug_assert!(helper.current_roots.contains_key(&to_go_position));
+                debug_assert!(helper
+                    .tree_position
+                    .contains_key(&helper.current_roots[&to_go_position]));
+                helper
+                    .tree_position
+                    .remove(&helper.current_roots.remove(&to_go_position).unwrap())
+                    .unwrap();
 
-
-                let (to_split, to_split_pos) = helper.tree_position
+                debug_assert!(!helper.tree_position.is_empty());
+                let (to_split, to_split_pos) = helper
+                    .tree_position
                     .iter()
                     .next_back()
                     .map(|(i, j)| (*i, *j))
                     .unwrap();
-                    // .ok_or(RecombineError::InvalidTreeIndex(
-                    //     "current roots map is empty".into(),
-                    // ))?;
-                dbg!(to_split);
+                // .ok_or(RecombineError::InvalidTreeIndex(
+                //     "current roots map is empty".into(),
+                // ))?;
                 debug_assert!(helper.tree_position.contains_key(&to_split));
                 debug_assert!(helper.current_roots.contains_key(&to_split_pos));
 
@@ -64,10 +68,10 @@ pub fn recombine(interface: &mut dyn RecombineInterface) -> Result<(), Box<dyn E
                     helper.tree_position.remove(&to_split).unwrap();
                     helper.current_roots.remove(&to_split_pos).unwrap();
 
-                            // .pop_root_index(to_split.1)
-                            // .ok_or(RecombineError::InvalidTreeIndex(
-                            //     "last element invalid?".into(),
-                            // ))?;
+                    // .pop_root_index(to_split.1)
+                    // .ok_or(RecombineError::InvalidTreeIndex(
+                    //     "last element invalid?".into(),
+                    // ))?;
 
                     let split_left = helper.left_index(to_split);
                     let split_right = helper.right_index(to_split);
@@ -109,10 +113,11 @@ pub fn recombine(interface: &mut dyn RecombineInterface) -> Result<(), Box<dyn E
                 }
             }
 
+            helper.repack_buffer(&mut points, &mut weights);
             num_lapack_calls = reduction_tool.num_linalg_calls();
         }
 
-        let mut locs : Vec<usize> = Vec::with_capacity(helper.tree_position.len());
+        let mut locs: Vec<usize> = Vec::with_capacity(helper.tree_position.len());
         let mut out_weights: Vec<f64> = Vec::with_capacity(helper.tree_position.len());
         for (i, wi) in helper.tree_position {
             locs.push(i);
@@ -302,6 +307,8 @@ mod tests {
         }
 
         fn set_output(&mut self, locs: &[usize], weights: &[f64]) {
+            debug_assert!(weights.len() <= self.output.weights.len());
+            debug_assert!(locs.len() <= self.output.locs.len());
             self.output.locs.copy_from_slice(locs);
             self.output.weights.copy_from_slice(weights);
         }
@@ -344,7 +351,7 @@ mod tests {
         let mut duration = Duration::new(0, 0);
         {
             SimpleTimer::new(&mut duration);
-            super::recombine(&mut interface);
+            super::recombine(&mut interface).unwrap();
         }
 
         println!("Test took {}s", duration.as_secs_f64());
