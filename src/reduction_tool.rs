@@ -37,12 +37,12 @@ impl SVDReductionTool {
     ) -> Result<Vec<f64>, Box<dyn Error>> {
         let input_cols = input.len() / lda as usize;
 
-        let mut s = vec![0.0f64; input_rows.min(input_cols)];
+        let mut s = vec![0.0f64; usize::min(input_rows, input_cols)];
         let mut u = vec![0.0f64];
         let ldu = 1;
         let mut vt = vec![0.0f64; input_cols * input_cols];
         let ldvt = input_cols as i32;
-        let mut work = vec![1.0f64];
+        let mut work = vec![0.0f64];
         let mut lwork = -1;
 
         let mut info: i32 = 0;
@@ -101,7 +101,6 @@ impl SVDReductionTool {
         }
 
         let split_point = s.partition_point(|x| *x > Self::THRESHOLD);
-
         let mut result = vec![0.0f64; (ldk as usize) * (input_cols - split_point)];
 
         for i in split_point..input_cols {
@@ -119,19 +118,20 @@ impl SVDReductionTool {
         mut max_set: Vec<usize>,
         points: &[f64],
         weights: &mut [f64],
-        m_cog: Vec<f64>,
+        mut m_cog: Vec<f64>,
         no_coords: usize,
     ) -> Result<Vec<usize>, Box<dyn Error>> {
-        let mut temp_min_set = Vec::<usize>::new();
+        let mut temp_min_set = Vec::<usize>::with_capacity(min_set.len());
 
         while temp_min_set.len() < min_set.len() {
             let mut avec = vec![0.0f64; min_set.len() * no_coords];
             let mut wvec = vec![0.0f64; min_set.len()];
             let mut bvec = m_cog.clone();
+            debug_assert!(bvec.len() >= min_set.len());
 
-            for i in 0..min_set.len() {
+            for (i, &mi) in min_set.iter().enumerate() {
                 for j in 0..no_coords {
-                    avec[j + i * no_coords] = points[j + no_coords * min_set[i]];
+                    avec[j + i * no_coords] = points[j + no_coords * mi];
                 }
             }
 
@@ -142,8 +142,8 @@ impl SVDReductionTool {
             let mut ldb = m as i32;
             let mut lwork = -1;
             let mut info = 0;
-            let mut work = vec![1.0f64];
-            let mut iwork = vec![1i32];
+            let mut work = vec![0.0f64];
+            let mut iwork = vec![0i32];
             let mut rank: i32 = 0;
             let rcond = 0.0f64;
 
@@ -164,15 +164,31 @@ impl SVDReductionTool {
                     &mut work, lwork, &mut iwork, &mut info,
                 );
             }
+            match info.cmp(&0) {
+                Ordering::Equal => (),
+                Ordering::Less => {
+                    return Err(
+                        RecombineError::LinearAlgebraError(format!("Incorrect argument {} to DGELSD", info)).into()
+                    );
+                },
+                Ordering::Greater => {
+                    return Err(
+                        RecombineError::LinearAlgebraError("DGELSD failed to converge".into()).into()
+                    )
+                }
+            }
+
 
             temp_min_set.clear();
-            for (i, mi) in min_set.iter().enumerate() {
+            for (i, &mi) in min_set.iter().enumerate() {
                 if bvec[i] <= 0.0f64 {
-                    weights[*mi] = 0.0f64;
-                    max_set.push(*mi);
+                    weights[mi] = 0.0f64;
+                    debug_assert!(!max_set.contains(&mi));
+                    max_set.push(mi);
                 } else {
-                    weights[*mi] = bvec[i];
-                    temp_min_set.push(*mi);
+                    weights[mi] = bvec[i];
+                    debug_assert!(!temp_min_set.contains(&mi));
+                    temp_min_set.push(mi);
                 }
             }
 
@@ -204,26 +220,29 @@ impl LinearAlgebraReductionTool for SVDReductionTool {
 
         let mut new_weights = weights.to_vec();
 
+        let mut tmp_pts = points.to_vec();
         let mut kernel =
-            self.find_kernel(points, no_coords, no_coords as isize, no_points as isize)?;
+            self.find_kernel(&mut tmp_pts, no_coords, no_coords as isize, no_points as isize)?;
 
         debug_assert!(kernel.iter().all(|v| v.is_finite()));
         debug_assert!(!kernel.iter().any(|v| v.is_nan()));
 
         let r_p = no_points;
-        let c_k = kernel.len() / no_points;
+        let ldk = no_points;
+        let c_k = kernel.len() / ldk;
 
         let (permute_r, permute_c) = reweight(
             &mut new_weights,
             &mut kernel,
             r_p,
+            ldk,
             c_k,
-            no_points,
             Self::PROB_ZERO_TOL,
         )?;
 
-        for &v in permute_r.iter().take(c_k) {
+        for (i, &v) in permute_r.iter().enumerate().take(c_k) {
             max_set.push(v);
+            debug_assert_eq!(new_weights[i], 0.0);
             weights[v] = 0.0f64;
         }
 
@@ -236,7 +255,7 @@ impl LinearAlgebraReductionTool for SVDReductionTool {
                 min_set.push(wi);
             }
         }
-        dbg!(max_set.len());
+
         self.sharpen_weights(min_set, max_set, points, weights, m_cog, no_coords)
     }
 

@@ -5,6 +5,7 @@ use libc::labs;
 use rand;
 use rand::prelude::*;
 use rand_distr;
+
 use std::error::Error;
 use std::time::{Duration, SystemTime};
 
@@ -124,15 +125,16 @@ impl RecombineInterface for TestRecombineInterface {
             }
         }
         for (j, row) in self.data.data.chunks_exact(self.data.cols).enumerate() {
-            let out_row = &mut output[j * depth_of_vector..(j + 1) * depth_of_vector];
             if self.degree == 1 {
-                out_row[0] = 1.0;
+                output[j*depth_of_vector] = 1.0;
                 for i in 0..self.data.cols {
-                    out_row[i + 1] = if max_buf[i] == min_buf[i] {
+                    output[j*depth_of_vector + i+1] = if max_buf[i] == min_buf[i] {
                         0.0f64
                     } else {
                         (2.0 * row[i] - (min_buf[i] + max_buf[i])) / (max_buf[i] - min_buf[i])
                     };
+                    debug_assert!(output[j*depth_of_vector+i+1] >= (-1.0 - f64::EPSILON) &&
+                        output[j*depth_of_vector+i+1] <= (1.0 + f64::EPSILON));
                 }
             } else {
                 todo!();
@@ -151,8 +153,8 @@ impl RecombineInterface for TestRecombineInterface {
     }
 
     fn set_output(&mut self, locs: &[usize], weights: &[f64]) {
-        debug_assert!(weights.len() <= self.output.weights.len());
-        debug_assert!(locs.len() <= self.output.locs.len());
+        debug_assert!(weights.len() == self.output.weights.len());
+        debug_assert!(locs.len() == self.output.locs.len());
         self.output.locs.copy_from_slice(locs);
         self.output.weights.copy_from_slice(weights);
     }
@@ -179,8 +181,8 @@ impl<'a> Drop for SimpleTimer<'a> {
 }
 
 fn main() {
-    const NUM_POINTS: usize = 10000;
-    const DIMENSION: usize = 100;
+    const NUM_POINTS: usize = 100;
+    const DIMENSION: usize = 10000;
 
     let m = Matrix::new(NUM_POINTS, DIMENSION);
     let indices: Vec<usize> = (0..NUM_POINTS).collect();

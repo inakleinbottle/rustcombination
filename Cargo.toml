@@ -12,7 +12,7 @@ lapack = "0.19.0"
 blas-src = {version ="*", features=["intel-mkl"]}
 lapack-src = {version="*", features=["intel-mkl"]}
 rayon = "1.5.2"
-rand = "*"
-rand_distr = "*"
 
 [dev-dependencies]
+rand = "*"
+rand_distr = "*"
