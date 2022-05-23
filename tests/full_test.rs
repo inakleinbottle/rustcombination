@@ -180,9 +180,10 @@ impl<'a> Drop for SimpleTimer<'a> {
     }
 }
 
-fn main() {
-    const NUM_POINTS: usize = 100;
-    const DIMENSION: usize = 10000;
+#[test]
+fn full_test() {
+    const NUM_POINTS: usize = 10000;
+    const DIMENSION: usize = 100;
 
     let m = Matrix::new(NUM_POINTS, DIMENSION);
     let indices: Vec<usize> = (0..NUM_POINTS).collect();
