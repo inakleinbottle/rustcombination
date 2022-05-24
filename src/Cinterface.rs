@@ -47,8 +47,8 @@ impl RecombineInterface for CRecombineInterface {
 
     fn expand_points(
         &self,
-        output: &mut [f64],
-        helper: &ConditionerHelper,
+        _output: &mut [f64],
+        _helper: &ConditionerHelper,
     ) -> Result<(), Box<dyn Error>> {
         todo!()
     }
@@ -61,7 +61,7 @@ impl RecombineInterface for CRecombineInterface {
         todo!()
     }
 
-    fn set_output(&mut self, locs: &[usize], weights: &[f64]) {
+    fn set_output(&mut self, _locs: &[usize], _weights: &[f64]) {
         todo!()
     }
 }

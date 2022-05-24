@@ -9,8 +9,9 @@ mod tree_buffer_helper;
 extern crate blas_src;
 extern crate lapack_src;
 
-use std::collections::BTreeMap;
+
 use std::error::Error;
+use rayon::ThreadPoolBuilder;
 
 pub use crate::errors::RecombineError;
 pub use crate::recombine_interface::{ConditionerHelper, RecombineInterface};
@@ -26,13 +27,16 @@ pub fn recombine(interface: &mut dyn RecombineInterface) -> Result<(), Box<dyn E
         let locs: Vec<usize> = (0..helper.num_points()).collect();
         interface.set_output(&locs, &helper.weights());
     } else {
-        let mut reduction_tool = SVDReductionTool::new();
+        ThreadPoolBuilder::new().num_threads(2).build_global()?;
+
+        let reduction_tool = SVDReductionTool::new();
         let mut weights: Vec<f64> = vec![0.0f64; helper.num_trees()];
 
         let degree = helper.degree();
         let mut points = vec![0.0f64; helper.num_trees() * degree];
         helper.update_points_buffer(&mut points, &mut weights);
 
+        debug_assert!(weights.iter().all(|v| *v >= 0.0 && *v <= 1.0));
 
         let mut num_lapack_calls = 0usize;
 
@@ -80,32 +84,15 @@ pub fn recombine(interface: &mut dyn RecombineInterface) -> Result<(), Box<dyn E
                     helper.current_roots.insert(to_split_pos, split_right);
                     helper.tree_position.insert(split_right, to_split_pos);
 
+                    // dbg!(to_split, split_left, split_right);
+                    // dbg!(helper.weight(split_left), helper.weight(split_right), helper.weight(to_split));
+
                     weights[to_go_position] = weights[to_split_pos] * helper.weight(split_left) / helper.weight(to_split);
-                    weights[to_split_pos] *= helper.weight(split_right) / helper.weight(to_split);
+                    weights[to_split_pos] *= (helper.weight(split_right) / helper.weight(to_split));
 
-                    let (left_pts, right_pts) = if to_go_position < to_split_pos {
-                        let (tmpl, tmpr) = points.split_at_mut(to_split_pos * degree);
-                        (
-                            &mut tmpl[to_go_position * degree..(to_go_position + 1) * degree],
-                            &mut tmpr[0..degree],
-                        )
-                    } else if to_split_pos < to_go_position {
-                        let (tmpl, tmpr) = points.split_at_mut(to_go_position * degree);
-                        (
-                            &mut tmpr[0..degree],
-                            &mut tmpl[to_split_pos * degree..(to_split_pos + 1) * degree],
-                        )
-                    } else {
-                        return Err(RecombineError::InvalidTreeIndex(
-                            "indices cannot be equal".into(),
-                        )
-                        .into());
-                    };
+                    debug_assert!(weights[to_go_position] <= 1.0 && weights[to_go_position] >= 0.0);
+                    debug_assert!(weights[to_split_pos] <= 1.0 && weights[to_split_pos] >= 0.0);
 
-
-
-                    let in_left = &helper[split_left];
-                    let in_right = &helper[split_right];
 
                     for i in 0..degree {
                         points[to_go_position*degree + i] = helper.points()[split_left*degree + i];
@@ -135,12 +122,12 @@ pub fn recombine(interface: &mut dyn RecombineInterface) -> Result<(), Box<dyn E
 pub mod monomials {
 
     fn count_monomials(letters: usize, degree: usize) -> usize {
-        if (letters == 0 && degree > 0) {
+        if letters == 0 && degree > 0 {
             0
         } else {
             let mut ans = 1;
             for j in 1..letters {
-                ans *= (j + degree);
+                ans *= j + degree;
                 debug_assert_eq!(ans % j, 0);
                 ans /= j;
             }

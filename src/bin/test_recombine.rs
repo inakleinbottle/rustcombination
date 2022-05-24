@@ -1,4 +1,3 @@
-
 use rustcombination::*;
 use crate::{ConditionerHelper, RecombineInterface};
 
@@ -7,7 +6,7 @@ use rand::prelude::*;
 use rand_distr;
 
 use std::error::Error;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, Instant};
 
 struct Matrix {
     pub data: Vec<f64>,
@@ -54,7 +53,7 @@ impl Matrix {
         let mut result = vec![0.0f64; self.cols];
         for (p, w) in indices.iter().zip(weights.iter()) {
             for j in 0..self.cols {
-                result[j] += w*self.data[p * self.cols + j];
+                result[j] += w * self.data[p * self.cols + j];
             }
         }
         result
@@ -125,15 +124,15 @@ impl RecombineInterface for TestRecombineInterface {
         }
         for (j, row) in self.data.data.chunks_exact(self.data.cols).enumerate() {
             if self.degree == 1 {
-                output[j*depth_of_vector] = 1.0;
+                output[j * depth_of_vector] = 1.0;
                 for i in 0..self.data.cols {
-                    output[j*depth_of_vector + i+1] = if max_buf[i] == min_buf[i] {
+                    output[j * depth_of_vector + i + 1] = if max_buf[i] == min_buf[i] {
                         0.0f64
                     } else {
                         (2.0 * row[i] - (min_buf[i] + max_buf[i])) / (max_buf[i] - min_buf[i])
                     };
-                    debug_assert!(output[j*depth_of_vector+i+1] >= (-1.0 - f64::EPSILON) &&
-                        output[j*depth_of_vector+i+1] <= (1.0 + f64::EPSILON));
+                    debug_assert!(output[j * depth_of_vector + i + 1] >= (-1.0 - f64::EPSILON) &&
+                        output[j * depth_of_vector + i + 1] <= (1.0 + f64::EPSILON));
                 }
             } else {
                 todo!();
@@ -160,14 +159,14 @@ impl RecombineInterface for TestRecombineInterface {
 }
 
 struct SimpleTimer<'a> {
-    start: SystemTime,
+    start: Instant,
     out: &'a mut Duration,
 }
 
 impl<'a> SimpleTimer<'a> {
     fn new(out: &'a mut Duration) -> Self {
         SimpleTimer {
-            start: SystemTime::now(),
+            start: Instant::now(),
             out,
         }
     }
@@ -175,14 +174,13 @@ impl<'a> SimpleTimer<'a> {
 
 impl<'a> Drop for SimpleTimer<'a> {
     fn drop(&mut self) {
-        *self.out = SystemTime::now().duration_since(self.start).unwrap();
+        *self.out = Instant::now().duration_since(self.start);
     }
 }
 
-#[test]
-fn full_test() {
+fn main() {
     const NUM_POINTS: usize = 10000;
-    const DIMENSION: usize = 100;
+    const DIMENSION: usize = 500;
 
     let m = Matrix::new(NUM_POINTS, DIMENSION);
     let indices: Vec<usize> = (0..NUM_POINTS).collect();

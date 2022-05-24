@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
-use std::error::Error;
+
 use std::ops::Index;
 use std::ops::IndexMut;
-use std::thread::current;
+
 
 use crate::recombine_interface::{ConditionerHelper, RecombineInterface};
 
@@ -49,7 +49,6 @@ impl TreeBufferHelper {
         let no_trees = usize::min(2 * degree, no_points);
         let buffer_end = 2*initial_no_leaves - no_trees;
 
-
         for i in initial_no_leaves..buffer_end {
             let left_parent = (i - initial_no_leaves) * 2;
             let right_parent = left_parent + 1;
@@ -59,7 +58,7 @@ impl TreeBufferHelper {
             debug_assert!(!left_weight.is_nan());
             debug_assert!(!right_weight.is_nan());
             let sum = left_weight + right_weight;
-            unsafe { *weights.get_unchecked_mut(i) = sum; }
+            weights[i] = sum;
             debug_assert_eq!(weights[i], sum);
 
             debug_assert!(right_parent < i);
@@ -68,27 +67,25 @@ impl TreeBufferHelper {
             // let lhs = &lower[left_parent * degree..(left_parent + 1) * degree];
             // let rhs = &lower[right_parent * degree..(right_parent + 1) * degree];
 
-            unsafe {
-                if left_weight <= right_weight {
+            if left_weight <= right_weight {
                     let weight = left_weight / sum;
-                    debug_assert!(!weight.is_nan());
-                    for j in 0..degree {
-                        debug_assert!(!data[left_parent*degree+j].is_nan());
-                        debug_assert!(!data[right_parent*degree+j].is_nan());
-                        // out[j] = lhs[j] * weight + rhs[j] * (1.0f64 - weight);
-                        data[i * degree + j] = data[left_parent * degree + j] * weight
-                            + data[right_parent * degree + j] * (1.0 - weight);
-                    }
-                } else {
-                    let weight = right_weight / sum;
-                    debug_assert!(!weight.is_nan());
-                    for j in 0..degree {
-                        debug_assert!(!data[left_parent * degree + j].is_nan());
-                        debug_assert!(!data[right_parent * degree + j].is_nan());
-                        // out[j] = lhs[j] * (1.0f64 - weight) + rhs[j] * weight;
-                        data[i * degree + j] = data[left_parent * degree + j] * (1.0 - weight)
-                            + data[right_parent * degree + j] * weight
-                    }
+                debug_assert!(!weight.is_nan());
+                for j in 0..degree {
+                    debug_assert!(!data[left_parent*degree+j].is_nan());
+                    debug_assert!(!data[right_parent*degree+j].is_nan());
+                    // out[j] = lhs[j] * weight + rhs[j] * (1.0f64 - weight);
+                    data[i * degree + j] = data[left_parent * degree + j] * weight
+                        + data[right_parent * degree + j] * (1.0 - weight);
+                }
+            } else {
+                let weight = right_weight / sum;
+                debug_assert!(!weight.is_nan());
+                for j in 0..degree {
+                    debug_assert!(!data[left_parent * degree + j].is_nan());
+                    debug_assert!(!data[right_parent * degree + j].is_nan());
+                    // out[j] = lhs[j] * (1.0f64 - weight) + rhs[j] * weight;
+                    data[i * degree + j] = data[left_parent * degree + j] * (1.0 - weight)
+                        + data[right_parent * degree + j] * weight
                 }
             }
         }
@@ -136,16 +133,6 @@ impl TreeBufferHelper {
         lft + 1
     }
 
-    pub fn left(&self, idx: usize) -> &[f64] {
-        let i = self.left_index(idx);
-        &self[i]
-    }
-
-    pub fn right(&self, idx: usize) -> &[f64] {
-        let i = self.right_index(idx);
-        &self[i]
-    }
-
     pub fn weight(&self, idx: usize) -> f64 {
         self.weights[idx]
     }
@@ -166,58 +153,6 @@ impl TreeBufferHelper {
         self.degree
     }
 
-    pub fn clear_weights(&mut self) {
-        self.weights.clear();
-    }
-
-    pub fn resize_weights(&mut self, new_size: usize) {
-        self.weights.resize(new_size, 0.0f64)
-    }
-
-    pub fn weights_mut(&mut self) -> &mut [f64] {
-        &mut self.weights
-    }
-
-    pub fn current_roots(&self) -> &BTreeMap<usize, usize> {
-        &self.current_roots
-    }
-    pub fn current_roots_mut(&mut self) -> &BTreeMap<usize, usize> {
-        &mut self.current_roots
-    }
-
-    pub fn pop_index(&mut self, idx: usize) -> Option<(usize, usize)> {
-        let root = self.current_roots.remove(&idx);
-        if let Some(i) = root {
-            if let Some(v) = self.tree_position.remove(&i) {
-                Some((i, v))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-    pub fn pop_root_index(&mut self, idx: usize) -> Option<usize> {
-        self.tree_position
-            .remove(&idx)
-            .map(|k| match self.current_roots.remove(&k) {
-                Some(_) => Some(k),
-                None => None,
-            })
-            .flatten()
-    }
-
-    pub fn tree_position(&self, idx: usize) -> Option<usize> {
-        self.tree_position.get(&idx).map(|&x| x)
-    }
-
-    pub fn insert_root(&mut self, key: usize, value: usize) {
-        let _ = self.current_roots.insert(key, value);
-    }
-    pub fn insert_tree_pos(&mut self, key: usize, value: usize) {
-        let _ = self.tree_position.insert(key, value);
-    }
-
     pub fn repack_buffer(&mut self, points: &mut Vec<f64>, weights: &mut Vec<f64>) {
         let mut current_roots_new = BTreeMap::new();
         let mut tree_position_new = BTreeMap::new();
@@ -235,7 +170,7 @@ impl TreeBufferHelper {
             //     .copy_from_slice(&points[node * self.degree..(node + 1) * self.degree]);
         }
 
-        let length = self.current_roots.len();
+        let _length = self.current_roots.len();
 
         self.current_roots = current_roots_new;
         self.tree_position = tree_position_new;

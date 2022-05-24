@@ -1,5 +1,8 @@
 use std::error::Error;
 
+
+use rayon::prelude::*;
+
 /// kernel is a m by r_p matrix
 pub fn reweight(
     mass: &mut [f64],
@@ -30,7 +33,7 @@ pub fn reweight(
 
     for offset in 0..c_k {
         let k_begin = offset * (ldk + 1);
-        let k_end = k_begin + r_k;
+        let _k_end = k_begin + r_k;
         // let okernel = &mut kernel[k_begin..];
         // let omass = &mass[offset..];
         let ocl = r_k - offset;
@@ -47,19 +50,35 @@ pub fn reweight(
                     let factor = -ker[k_begin + r + c * ldk] / denom;
                     // debug_assert!(factor.abs() <= 1.0f64);
                     let mut j = 0usize;
-                    loop {
-                        let this_chunk_size = if j + CHUNK_SIZE < ocl {
-                            CHUNK_SIZE
-                        } else if j < ocl {
-                            ocl - j
-                        } else {
-                            break;
-                        };
-                        for jj in 0..this_chunk_size {
-                            ker[k_begin + c * ldk + j + jj] += factor * ker[k_begin + j + jj];
-                        }
-                        j += this_chunk_size;
+
+                    {
+                        let rhs = ker[k_begin..k_begin + ocl].to_vec();
+                        let start = k_begin + c * ldk;
+                        let end = start + ocl;
+                        ker[start..end]
+                            .par_chunks_mut(CHUNK_SIZE)
+                            .zip(rhs.par_chunks(CHUNK_SIZE))
+                            .for_each(|(lhs, r)| {
+                                lhs.iter_mut().zip(r.iter())
+                                    .for_each(|(l, r)| *l += factor * (*r))
+                            });
+
                     }
+
+                //
+                //     loop {
+                //         let this_chunk_size = if j + CHUNK_SIZE < ocl {
+                //             CHUNK_SIZE
+                //         } else if j < ocl {
+                //             ocl - j
+                //         } else {
+                //             break;
+                //         };
+                //         for jj in 0..this_chunk_size {
+                //             ker[k_begin + c * ldk + j + jj] += factor * ker[k_begin + j + jj];
+                //         }
+                //         j += this_chunk_size;
+                //     }
                 }
 
                 if r != 0usize {
@@ -84,7 +103,7 @@ pub fn reweight(
             let r = idx - offset;
             let mut max_col = 0;
             let mut curr_max = kernel[k_begin + r].abs();
-            for i in 0..ocn {
+            for i in 1..ocn {
                 let test = k_begin + i * ldk + r;
                 let test_val = kernel[test].abs();
                 if test_val > curr_max {
@@ -94,7 +113,7 @@ pub fn reweight(
             }
             if max_col != 0 {
                 for i in 0..ocl {
-                    kernel.swap(offset*ldk + i, (offset + max_col) * ldk + i)
+                    kernel.swap(k_begin + i, k_begin + max_col * ldk + i)
                 }
                 c_idx.swap(max_col, 0usize);
             }
@@ -118,9 +137,9 @@ pub fn reweight(
                 if i == r {
                     mass[i+offset] = 0.0f64;
                 } else {
-                    mass[i+offset] += (factor * kernel[k_begin+i]);
+                    mass[i+offset] += factor * kernel[k_begin+i];
                 }
-                debug_assert!(mass[i] >= 0.0f64);
+                debug_assert!(mass[i+offset] >= 0.0f64 && mass[i+offset] <= 1.0f64);
             }
 
             update_k_increment_0(r, kernel, mass);
